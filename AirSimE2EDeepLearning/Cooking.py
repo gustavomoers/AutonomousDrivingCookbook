@@ -114,20 +114,23 @@ def generatorForH5py(data_mappings, chunk_size=32):
     """
     This function batches the data for saving to the H5 file
     """
-    for chunk_id in range(0, len(data_mappings), chunk_size):
-        # Data is expected to be a dict of <image: (label, previousious_state)>
-        # Extract the parts
-        data_chunk = data_mappings[chunk_id:chunk_id + chunk_size]
-        if (len(data_chunk) == chunk_size):
-            image_names_chunk = [a for (a, b) in data_chunk]
-            labels_chunk = np.asarray([b[0] for (a, b) in data_chunk])
-            previous_state_chunk = np.asarray([b[1] for (a, b) in data_chunk])
-            
-            #Flatten and yield as tuple
-            yield (image_names_chunk, labels_chunk.astype(float), previous_state_chunk.astype(float))
-            if chunk_id + chunk_size > len(data_mappings):
-                raise StopIteration
-    raise StopIteration
+    try:
+        for chunk_id in range(0, len(data_mappings), chunk_size):
+            # Data is expected to be a dict of <image: (label, previousious_state)>
+            # Extract the parts
+            data_chunk = data_mappings[chunk_id:chunk_id + chunk_size]
+            if (len(data_chunk) == chunk_size):
+                image_names_chunk = [a for (a, b) in data_chunk]
+                labels_chunk = np.asarray([b[0] for (a, b) in data_chunk])
+                previous_state_chunk = np.asarray([b[1] for (a, b) in data_chunk])
+
+                #Flatten and yield as tuple
+                yield (image_names_chunk, labels_chunk.astype(float), previous_state_chunk.astype(float))
+                if chunk_id + chunk_size > len(data_mappings):
+                    raise StopIteration
+        raise StopIteration
+    except StopIteration:
+        return
     
 def saveH5pyData(data_mappings, target_file_path):
     """
@@ -160,21 +163,27 @@ def saveH5pyData(data_mappings, target_file_path):
         dset_images[:] = images_chunk
         dset_labels[:] = labels_chunk
         dset_previous_state[:] = previous_state_chunk
+        
+        
+        try:
 
-        for image_names_chunk, label_chunk, previous_state_chunk in gen:
-            image_chunk = np.asarray(readImagesFromPath(image_names_chunk))
-            
-            # Resize the dataset to accommodate the next chunk of rows
-            dset_images.resize(row_count + image_chunk.shape[0], axis=0)
-            dset_labels.resize(row_count + label_chunk.shape[0], axis=0)
-            dset_previous_state.resize(row_count + previous_state_chunk.shape[0], axis=0)
-            # Write the next chunk
-            dset_images[row_count:] = image_chunk
-            dset_labels[row_count:] = label_chunk
-            dset_previous_state[row_count:] = previous_state_chunk
+            for image_names_chunk, label_chunk, previous_state_chunk in gen:
+                image_chunk = np.asarray(readImagesFromPath(image_names_chunk))
 
-            # Increment the row count
-            row_count += image_chunk.shape[0]
+                # Resize the dataset to accommodate the next chunk of rows
+                dset_images.resize(row_count + image_chunk.shape[0], axis=0)
+                dset_labels.resize(row_count + label_chunk.shape[0], axis=0)
+                dset_previous_state.resize(row_count + previous_state_chunk.shape[0], axis=0)
+                # Write the next chunk
+                dset_images[row_count:] = image_chunk
+                dset_labels[row_count:] = label_chunk
+                dset_previous_state[row_count:] = previous_state_chunk
+
+                # Increment the row count
+                row_count += image_chunk.shape[0]
+                
+        except StopIteration:
+            return
             
             
 def cook(folders, output_directory, train_eval_test_split):
@@ -186,13 +195,14 @@ def cook(folders, output_directory, train_eval_test_split):
     """
     output_files = [os.path.join(output_directory, f) for f in ['train.h5', 'eval.h5', 'test.h5']]
     if (any([os.path.isfile(f) for f in output_files])):
-       print("Preprocessed data already exists at: {0}. Skipping preprocessing.".format(output_directory))
+        print("Preprocessed data already exists at: {0}. Skipping preprocessing.".format(output_directory))
+    
 
     else:
         all_data_mappings = generateDataMapAirSim(folders)
-        
+
         split_mappings = splitTrainValidationAndTestData(all_data_mappings, split_ratio=train_eval_test_split)
-        
+
         for i in range(0, len(split_mappings), 1):
             print('Processing {0}...'.format(output_files[i]))
             saveH5pyData(split_mappings[i], output_files[i])
